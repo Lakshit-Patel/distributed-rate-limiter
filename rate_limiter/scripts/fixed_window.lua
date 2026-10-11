@@ -26,17 +26,19 @@ local now_sec = tonumber(time_arr[1])
 local now_usec = tonumber(time_arr[2])
 local now = now_sec + (now_usec / 1000000)
 
--- 2. Increment the counter for this window
-local current = redis.call('INCR', key)
+local window_bucket = math.floor(now_sec / window) * window
+local bucket_key = key .. ':' .. tostring(window_bucket)
+
+-- 2. Increment the counter for this window bucket
+local current = redis.call('INCR', bucket_key)
 
 -- 3. If new key, set expiration with safety buffer to avoid leaking memory
 if current == 1 then
-    redis.call('EXPIRE', key, window + 1)
+    redis.call('EXPIRE', bucket_key, window * 2)
 end
 
 -- 4. Calculate window boundary and reset epoch
-local window_start = math.floor(now_sec / window) * window
-local reset_at = window_start + window
+local reset_at = window_bucket + window
 local retry_after = 0
 
 local allowed = 0
