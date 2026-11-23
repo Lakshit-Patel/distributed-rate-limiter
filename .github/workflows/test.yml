@@ -36,6 +36,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Install Redis server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+
       - name: Run pytest suite
         run: |
           pytest -v
