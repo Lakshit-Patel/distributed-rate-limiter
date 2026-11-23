@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "distributed-rate-limiter"
 version = "0.1.0"
 description = "Production-grade distributed rate limiter using FastAPI, Redis Lua scripts, and atomic algorithms"
-authors = [{ name = "Student Developer" }]
+authors = [{ name = "Lakshit Patel" }]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
