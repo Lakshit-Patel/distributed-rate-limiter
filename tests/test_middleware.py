@@ -9,6 +9,7 @@ from rate_limiter.middleware.middleware import (
     RateLimiterMiddleware,
     FailurePolicy,
     extract_client_ip,
+    default_key_func,
 )
 
 
@@ -150,3 +151,129 @@ async def test_redis_down_fail_closed_policy():
         res = await client.get("/guarded")
         assert res.status_code == 429
         assert "Rate limiter service unavailable" in res.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_middleware_custom_key_function(redis_client):
+    """Middleware uses the configured custom key function."""
+    app = FastAPI()
+
+    limiter = SlidingWindowCounterLimiter(redis_client)
+
+    def custom_key(request):
+        return f"custom:{request.headers.get('X-Tenant-ID', 'unknown')}"
+
+    app.add_middleware(
+        RateLimiterMiddleware,
+        limiter=limiter,
+        limit=1,
+        window=60,
+        key_func=custom_key,
+    )
+
+    @app.get("/")
+    async def root():
+        return {"ok": True}
+
+    transport = ASGITransport(app=app, client=("127.0.0.1", 50000))
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.get("/", headers={"X-Tenant-ID": "tenant-a"})
+        second = await client.get("/", headers={"X-Tenant-ID": "tenant-a"})
+        third = await client.get("/", headers={"X-Tenant-ID": "tenant-b"})
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert third.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_middleware_excluded_path_skips_limiter(redis_client):
+    """Excluded paths must not consume Redis quota."""
+    app = FastAPI()
+
+    class ShouldNotBeCalledLimiter:
+        async def allow(self, *args, **kwargs):
+            raise AssertionError("Limiter should not run for excluded paths")
+
+    app.add_middleware(
+        RateLimiterMiddleware,
+        limiter=ShouldNotBeCalledLimiter(),
+        limit=1,
+        window=60,
+        exclude_paths=["/health"],
+    )
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+def test_trusted_proxy_cidr_range():
+    """A peer inside a trusted CIDR range may supply forwarded client IP."""
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "client": ("10.0.0.5", 12345),
+        "headers": [
+            (b"x-forwarded-for", b"203.0.113.25"),
+        ],
+    }
+
+    request = Request(scope)
+
+    result = extract_client_ip(
+        request,
+        {"10.0.0.0/24"},
+    )
+
+    assert result == "203.0.113.25"
+
+
+def test_cf_connecting_ip_takes_precedence():
+    """CF-Connecting-IP takes precedence over X-Forwarded-For."""
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "client": ("10.0.0.5", 12345),
+        "headers": [
+            (b"cf-connecting-ip", b"203.0.113.30"),
+            (b"x-forwarded-for", b"203.0.113.40"),
+        ],
+    }
+
+    request = Request(scope)
+
+    result = extract_client_ip(
+        request,
+        {"10.0.0.0/24"},
+    )
+
+    assert result == "203.0.113.30"
+
+
+def test_api_key_takes_precedence_over_user_id():
+    """API key must be used when both API key and user ID are present."""
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "client": ("198.51.100.10", 12345),
+        "headers": [
+            (b"x-api-key", b"test-api-key"),
+            (b"x-user-id", b"test-user"),
+        ],
+    }
+
+    request = Request(scope)
+    result = default_key_func(request, set())
+    assert result == "apikey:test-api-key"

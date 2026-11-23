@@ -48,8 +48,13 @@ app.add_middleware(
     window=10,
     failure_policy=FailurePolicy(FAIL_POLICY),
     trusted_proxies=TRUSTED_PROXIES,
-    exclude_paths=["/health", "/docs", "/openapi.json"],
-)
+    exclude_paths=["/health",
+                   "/docs",
+                   "/openapi.json",
+                   "/api/v1/strict-tier",
+                   "/api/v1/burst-tier"
+                   ],
+    )
 
 
 @app.get("/health")

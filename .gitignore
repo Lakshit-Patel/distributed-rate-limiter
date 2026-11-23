@@ -1,27 +1,81 @@
+# ==============================
+# Python
+# ==============================
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 
-# Environments
+# ==============================
+# Virtual Environments
+# ==============================
 .venv/
-env/
 venv/
+env/
 ENV/
 
-# Testing & Coverage
+# ==============================
+# Python Packaging
+# ==============================
+*.egg-info/
+build/
+dist/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# ==============================
+# Testing and Coverage
+# ==============================
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.nox/
+coverage.xml
+junit.xml
 
-# Local env files
+# ==============================
+# Environment Variables / Secrets
+# ==============================
 .env
-.env.local
+.env.*
+!.env.example
+!.env.template
 
-# OS files
-.DS_Store
-Thumbs.db
+# ==============================
+# IDEs and Editors
+# ==============================
+.vscode/
+.idea/
 *.swp
+*.swo
 *~
 
-# Test Redis binary
+# ==============================
+# Operating System
+# ==============================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==============================
+# Logs and Temporary Files
+# ==============================
+*.log
+logs/
+tmp/
+temp/
+
+# ==============================
+# Redis Test Artifacts
+# ==============================
 tests/bin/
+dump.rdb
+appendonly.aof
+
+# ==============================
+# Docker Overrides
+# ==============================
+/docker/docker-compose.override.yml
