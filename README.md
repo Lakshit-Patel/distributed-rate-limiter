@@ -1,77 +1,18 @@
 # Distributed Rate Limiter
 
-A distributed rate-limiting service built with **Python, FastAPI, Redis, and Lua scripts**. It supports multiple rate-limiting algorithms and uses atomic Redis operations to enforce shared request quotas across multiple API instances.
+A distributed rate-limiting service built with **Python, FastAPI, Redis, and Lua scripts**. It implements four rate-limiting algorithms and uses atomic Redis operations so that multiple API instances enforce one shared request quota.
 
-The project demonstrates distributed state management, concurrency-safe rate limiting, API middleware, Docker-based deployment, automated testing, and load testing.
+The project covers concurrency-safe shared state, API middleware, multi-instance Docker deployment, automated testing, and load testing.
 
 ## Key Highlights
 
-- **4 rate-limiting algorithms:** Fixed Window, Sliding Window Log, Sliding Window Counter, and Token Bucket.
-- **Atomic Redis operations:** Lua scripts prevent race conditions during concurrent requests.
-- **Distributed enforcement:** Multiple FastAPI instances share rate-limit state through Redis.
-- **3 API instances:** Deployed behind an Nginx reverse proxy using Docker Compose.
-- **21,205 requests tested:** Completed a 60-second Locust load test with 50 concurrent users.
-- **0% request failures:** No failed requests reported during the recorded benchmark.
-- **362.78 requests/second:** Throughput reported by Locust during the benchmark.
-- **98% test coverage:** From the project's earlier local coverage run; see the testing section.
-
-## Benchmark Results
-
-A load test was conducted using Locust against the Docker Compose deployment.
-
-### Test configuration
-
-| Parameter | Value |
-|---|---|
-| Load testing tool | Locust 2.46.7 |
-| Concurrent users | 50 |
-| User spawn rate | 10 users/second |
-| Test duration | 60 seconds |
-| API instances | 3 |
-| Reverse proxy | Nginx |
-| Shared datastore | Redis |
-| Target | `http://localhost:8080` |
-
-### Measured results
-
-| Metric | Result |
-|---|---:|
-| Total requests | 21,205 |
-| Failed requests | 0 |
-| Failure rate | 0.00% |
-| Throughput (Locust reported) | 362.78 req/s |
-| Average response time | 58 ms |
-| Median response time (p50) | 32 ms |
-| 95th percentile (p95) | 180 ms |
-| 99th percentile (p99) | 410 ms |
-| Maximum response time | 870 ms |
-
-### Test machine
-
-| Component | Specification |
-|---|---|
-| Processor | 12th Gen Intel Core i3-1215U |
-| Installed RAM | 8 GB DDR4 (3200 MT/s) |
-| Graphics | Intel UHD Graphics |
-| Storage | 477 GB |
-
-### Reproduce the benchmark
-
-Start the Docker deployment:
-
-```bash
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-Run the Locust benchmark:
-
-```bash
-locust -f tests/locustfile.py --headless -u 50 -r 10 --run-time 1m --host http://localhost:8080 --csv results
-```
-
-The command generates CSV output files with request statistics.
-
-**Benchmark limitations:** These results represent one test run on the machine listed above. They should not be interpreted as a guaranteed production capacity or as a benchmark against dedicated server hardware. Results can vary with machine load, Docker resource allocation, network conditions, and Redis performance.
+- **4 algorithms:** Fixed Window, Sliding Window Log, Sliding Window Counter, Token Bucket, behind a common abstract base class.
+- **Atomic enforcement:** each check runs as a Redis Lua script (`EVALSHA`), removing GET-then-SET race conditions.
+- **Redis server time:** scripts use Redis `TIME`, so enforcement does not depend on application clocks.
+- **Distributed:** 3 FastAPI instances behind Nginx share quotas through one Redis.
+- **Concurrency tests:** 50 parallel requests against a limit of 10 allow exactly 10; a naive GET/SET limiter leaks past the limit under the same pattern.
+- **Load test:** 21,205 requests over 60 seconds with 50 concurrent users, 0 failures (see [Benchmark Results](#benchmark-results) for exactly what that means).
+- **CI:** GitHub Actions runs the pytest suite on every push and pull request.
 
 ## Architecture
 
@@ -80,7 +21,7 @@ The command generates CSV output files with request statistics.
                          |
                          v
                  Nginx Reverse Proxy
-                    Port 8080
+                    (port 8080)
                          |
           +--------------+--------------+
           |              |              |
@@ -90,248 +31,161 @@ The command generates CSV output files with request statistics.
           +--------------+--------------+
                          |
                          v
-                    Redis 7
-                         |
-                 Atomic Lua Scripts
-                         |
-                         v
-                Shared Rate-Limit State
+                  Redis 7 (shared state)
+                  atomic Lua scripts
 ```
 
-All API instances use the same Redis-backed state. This allows a client's request quota to be enforced consistently regardless of which API instance receives the request.
-
-Redis Lua scripts execute the rate-limit operations atomically, preventing concurrent requests from incorrectly modifying shared counters or token balances.
+Whichever API instance receives a request, the same client is checked against the same Redis counters, so a client cannot get extra quota by being routed to a different instance.
 
 ## Rate-Limiting Algorithms
 
-The service implements four algorithms:
+| Algorithm | How it works | Trade-off |
+|---|---|---|
+| Fixed Window | Counts requests per fixed time interval | Simple and cheap; allows bursts at window boundaries |
+| Sliding Window Log | Stores a timestamp per request and drops expired ones | Exact enforcement; highest Redis memory use |
+| Sliding Window Counter | Weights the previous and current window counters | Good accuracy at low memory cost; an estimate, not exact |
+| Token Bucket | Requests spend tokens that refill at a set rate | Allows controlled bursts while limiting sustained traffic |
 
-### 1. Fixed Window Counter
+All four implement `BaseRateLimiter` and are interchangeable in the middleware and route dependencies.
 
-- Divides time into fixed intervals.
-- Tracks the number of requests within each interval.
-- Simple and memory-efficient.
-- Can allow bursts around window boundaries.
+## Demo Endpoints
 
-### 2. Sliding Window Log
-
-- Stores individual request timestamps.
-- Removes timestamps outside the active time window.
-- Provides accurate sliding-window enforcement.
-- Requires more Redis storage than counter-based approaches.
-
-### 3. Sliding Window Counter
-
-- Combines the current and previous fixed-window counters.
-- Estimates usage across a continuously moving time window.
-- Offers a balance between memory efficiency and accuracy.
-
-### 4. Token Bucket
-
-- Maintains a bucket with a configurable token capacity.
-- Requests consume tokens.
-- Tokens refill at a configured rate.
-- Supports controlled bursts while limiting sustained traffic.
-
-## API Demonstration Endpoints
-
-| Endpoint | Algorithm / Configuration |
+| Endpoint | Policy |
 |---|---|
-| `/health` | Health check; excluded from rate limiting |
-| `/api/v1/resource` | Sliding Window Counter; 10 requests per 10 seconds |
-| `/api/v1/strict-tier` | Sliding Window Log; 3 requests per 5 seconds |
-| `/api/v1/burst-tier` | Token Bucket; capacity 20, refill 2 tokens/second |
-| `/api/v1/demo-cluster` | Distributed middleware demonstration |
+| `GET /health` | Health check; excluded from rate limiting |
+| `GET /api/v1/resource` | Global middleware, Sliding Window Counter: 10 requests / 10 s |
+| `GET /api/v1/strict-tier` | Sliding Window Log: 3 requests / 5 s |
+| `GET /api/v1/burst-tier` | Token Bucket: capacity 20, refills over 10 s (2 tokens/s) |
+| `GET /api/v1/demo-cluster` | Passes through the global middleware; response shows which instance served it |
 
-The endpoints are intended to demonstrate different rate-limiting policies and their behavior.
+Rate-limit responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` on HTTP 429.
 
-## Technical Features
+## Features
 
-- FastAPI middleware for request-level enforcement.
-- Redis-backed shared state across API instances.
-- Atomic Lua scripts for concurrency-safe operations.
-- Redis server time inside Lua scripts to avoid relying on potentially inconsistent application clocks.
-- Configurable rate-limit policies.
-- Custom client-key extraction.
-- Tenant-based key grouping.
-- Trusted proxy and forwarded-IP handling.
-- API-key and user-ID based client identification.
-- Configurable fail-open and fail-closed behavior.
-- Rate-limit response headers.
-- Lua script SHA caching and recovery from `NOSCRIPT` errors.
-- Health-check endpoint excluded from rate limiting.
+- FastAPI middleware (global) and dependency-based (per-route) limits.
+- Client keys by IP, API key, or user ID, with custom key functions.
+- Trusted-proxy validation: `X-Forwarded-For` is only honored when the direct peer is a trusted proxy, so spoofed headers cannot evade limits.
+- Configurable `fail_open` / `fail_closed` behavior when Redis is unavailable.
+- Lua script SHA caching with automatic recovery from `NOSCRIPT` errors.
+- Per-path exclusions for the middleware.
 
-## Testing
+## Configuration
 
-The project includes automated tests for application integration, middleware behavior, dependencies, and rate-limiter management.
+Environment variables read by the demo app (`rate_limiter/app.py`):
 
-Previously recorded local test results:
-
-- **23 automated tests passed**
-- **98% code coverage**
-
-Run the test suite:
-
-```bash
-python -m pytest -v
-```
-
-Run coverage:
-
-```bash
-python -m pytest --cov=rate_limiter --cov-report=term-missing -v
-```
-
-The test suite covers areas including:
-
-- Application endpoints and integration behavior.
-- Rate-limit enforcement.
-- Middleware configuration and excluded paths.
-- Client identification and trusted proxy handling.
-- Dependency behavior and response headers.
-- Redis Lua script loading and SHA caching.
-- Recovery from missing Lua scripts.
-- Error propagation.
-
-*Note: The 23-test and 98%-coverage figures refer to an earlier recorded local test run. Re-run the commands above before treating them as the latest verified figures.*
-
-## Technology Stack
-
-| Technology | Purpose |
-|---|---|
-| Python 3.11+ | Core implementation |
-| FastAPI | API framework |
-| Redis 7 | Shared distributed state |
-| Redis Lua | Atomic rate-limit operations |
-| Nginx | Reverse proxy and request routing |
-| Docker Compose | Multi-container deployment |
-| pytest | Automated testing |
-| HTTPX | API testing |
-| Locust | Load testing |
+| Variable | Default | Purpose |
+|---|---|---|
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
+| `INSTANCE_ID` | container hostname | Label returned in responses |
+| `RATE_LIMIT_FAIL_POLICY` | `fail_open` | `fail_open` or `fail_closed` when Redis is down |
+| `TRUSTED_PROXIES` | `127.0.0.1,::1,nginx` | Peers allowed to set forwarded-IP headers |
 
 ## Running Locally
 
 ### Prerequisites
 
-- Python 3.11 or later
-- Redis
-- Docker Desktop (recommended for the complete deployment)
-- Git
+- Python 3.11+
+- Docker Desktop (for the full 3-instance deployment)
+- A `redis-server` binary on your PATH (needed only to run the test suite; see Testing)
 
-### Clone the repository
+### Setup
 
 ```bash
 git clone https://github.com/Lakshit-Patel/distributed-rate-limiter.git
 cd distributed-rate-limiter
-```
-
-### Install dependencies
-
-```bash
 python -m venv .venv
-```
-
-Activate the environment on Windows Git Bash:
-
-```bash
-source .venv/Scripts/activate
-```
-
-Install the project:
-
-```bash
-python -m pip install --upgrade pip
+source .venv/bin/activate        # Windows Git Bash: source .venv/Scripts/activate
+pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-### Start the distributed deployment
+### Start the deployment
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build -d
-```
-
-The API is exposed through Nginx at:
-
-```text
-http://localhost:8080
-```
-
-Check the health endpoint:
-
-```bash
 curl http://localhost:8080/health
 ```
 
-### Stop the deployment
+Stop it with:
 
 ```bash
 docker compose -f docker/docker-compose.yml down
 ```
 
-## Project Structure
+## Testing
 
-```text
-distributed-rate-limiter/
-│
-├── rate_limiter/
-│   ├── algorithms/
-│   ├── scripts/
-│   ├── middleware/
-│   ├── dependencies/
-│   ├── manager.py
-│   └── app.py
-│
-├── tests/
-│   ├── locustfile.py
-│   ├── test_app.py
-│   ├── test_dependencies.py
-│   ├── test_manager.py
-│   └── test_middleware.py
-│
-├── docker/
-│   ├── docker-compose.yml
-│   ├── Dockerfile
-│   └── nginx configuration
-│
-├── docs/
-│   └── INTERVIEW_NOTES.md
-│
-├── pyproject.toml
-├── .gitignore
-└── README.md
+The suite runs against a **real Redis**, not a mock. `tests/conftest.py` starts a temporary `redis-server` on port 6389 for the session, flushes it between tests, and shuts it down afterward. It uses `tests/bin/redis-server.exe` if present (Windows) and otherwise falls back to a `redis-server` on your PATH.
+
+```bash
+python -m pytest -v
+python -m pytest --cov=rate_limiter --cov-report=term-missing -v
 ```
 
-The directory listing above describes the main project components; individual implementation files may vary as the project evolves.
+### Latest results
 
-## Engineering Considerations and Limitations
+| Metric | Result |
+|---|---:|
+| Tests passed | 23 / 23 |
+| Overall coverage | 98% |
 
-This project is a portfolio-level implementation of distributed rate limiting, with a multi-instance Docker deployment and a recorded load test.
+Run on Python 3.12, pytest 9.1.1, Windows. The uncovered lines are a few defensive branches in `middleware.py` (46-49), `base.py` (45) and `naive.py` (51).
 
-The benchmark is not a substitute for production-scale validation. Before using this service for production traffic, further work would include:
+### What is covered
 
-- Testing Redis failure and recovery under load.
-- Measuring performance at higher concurrency levels.
-- Running benchmarks on dedicated deployment hardware.
-- Adding production monitoring, dashboards, and alerting.
-- Evaluating Redis persistence, replication, and high availability.
-- Performing security and configuration reviews.
-- Testing behavior under sustained traffic and network failures.
+| File | Covers |
+|---|---|
+| `test_algorithms.py` | Fixed window rollover, sliding log enforcement, sliding counter weighting, token bucket refill and burst |
+| `test_concurrency.py` | Atomicity under concurrent load (details below) |
+| `test_manager.py` | Lua script loading, SHA caching, `NOSCRIPT` recovery, error propagation |
+| `test_middleware.py` | Enforcement, excluded paths, trusted-proxy and spoofed-IP handling, custom keys, fail-open / fail-closed |
+| `test_dependencies.py` | Per-route dependencies and response headers |
+| `test_app.py` | End-to-end API behavior and rate-limit responses |
 
-## Learning Outcomes
+### Concurrency tests
 
-Building this project involved working with:
+All three tests use `asyncio.gather` to fire requests simultaneously at one Redis:
 
-- Distributed systems and shared state.
-- Atomic operations and concurrency control.
-- Redis scripting and data structures.
-- API middleware and request lifecycle management.
-- Rate-limiting algorithm trade-offs.
-- Docker-based multi-instance deployments.
-- Reverse proxy configuration.
-- Automated integration testing.
-- Load testing and latency analysis.
+| Test | Requests | Limit | Assertion |
+|---|---:|---:|---|
+| Sliding Window Counter | 50 | 10 | exactly 10 allowed, 40 denied |
+| Token Bucket | 60 | 15 | exactly 15 allowed |
+| Naive GET-then-SET (control) | 25 | 5 | more than 5 allowed (the race condition) |
 
-## Repository
+The naive limiter is included on purpose: it shows why the atomic Lua scripts are necessary. Note that these tests run in a single process against one Redis, so they validate atomicity at the Redis layer. The multi-instance behavior is exercised by the Docker deployment and the load test below.
 
-[GitHub – Distributed Rate Limiter](https://github.com/Lakshit-Patel/distributed-rate-limiter)
+### Continuous integration
 
+`.github/workflows/test.yml` runs the pytest suite on every push and pull request to `main`.
+
+## Benchmark Results
+
+A 60-second Locust run against the Docker Compose deployment (3 API instances, Nginx, Redis 7).
+
+### Configuration
+
+| Parameter | Value |
+|---|---|
+| Tool | Locust 2.46.7 |
+| Concurrent users | 50 |
+| Spawn rate | 10 users/s |
+| Duration | 60 s |
+| Target | `http://localhost:8080` |
+| Traffic mix | `/resource` ×3, `/strict-tier` ×2, `/burst-tier` ×2, `/demo-cluster` ×1 |
+
+### Results
+
+| Metric | Result |
+|---|---:|
+| Total requests | 21,205 |
+| Failed requests | 0 |
+| Average throughput | 362.78 req/s |
+| Average response time | 58 ms |
+| Median (p50) | 32 ms |
+| p95 | 180 ms |
+| p99 | 410 ms |
+| Maximum | 874 ms |
+
+### How to read these numbers
+
+- **Throughput is rate-limit decisions per second, not served traffic.** The demo limits are small (10 / 10 s, 3 / 5 s, 20 / 10 s), so under 50 concurrent users most responses are HTTP 429 rejections.
+- **"0 failures" means no unexpected responses.** The locustfile counts
