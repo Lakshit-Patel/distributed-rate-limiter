@@ -9,6 +9,10 @@ The distributed rate limiter was validated using automated Pytest test cases cov
 The test execution completed successfully with **23 tests passed in 6.91 seconds**.
 
 **Evidence:** Screenshot 1 – Automated test execution results.
+<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/e9e857f8-1605-4f5e-8c55-0d5dee1426a0" />
+<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/aa57c499-8ccc-4951-bf53-f8bf984cc679" />
+<img width="959" height="293" alt="Screenshot 2026-11-25 113049" src="https://github.com/user-attachments/assets/f4370621-df59-44a2-bd84-c659ded3070b" />
+<img width="949" height="539" alt="Screenshot 2026-11-25 113043" src="https://github.com/user-attachments/assets/9d1e891e-1641-404b-8696-991106cb0bee" />
 
 
 ---
