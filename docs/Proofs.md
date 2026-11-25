@@ -9,7 +9,7 @@ The distributed rate limiter was validated using automated Pytest test cases cov
 The test execution completed successfully with **23 tests passed in 6.91 seconds**.
 
 **Evidence:** Screenshot 1 – Automated test execution results.
-<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/e9e857f8-1605-4f5e-8c55-0d5dee1426a0" />
+<img width="949" height="539" alt="Screenshot 2026-11-25 113043" src="https://github.com/user-attachments/assets/189a22db-ae81-4c4f-806c-59004976bf2a" />
 
 ---
 
@@ -22,9 +22,8 @@ Code coverage was measured using Pytest-Cov to evaluate how much of the rate lim
 The report covers **296 statements**, with **98% overall code coverage** and only 6 statements missed.
 
 **Evidence:** Screenshot 2 – Pytest-Cov coverage report.
+<img width="959" height="293" alt="Screenshot 2026-11-25 113049" src="https://github.com/user-attachments/assets/f4370621-df59-44a2-bd84-c659ded3070b" />
 
-<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/aa57c499-8ccc-4951-bf53-f8bf984cc679" />
----
 
 ## 3. Concurrent Request Testing
 
@@ -36,7 +35,8 @@ The test records the HTTP response status distribution to evaluate rate-limit en
 
 **Evidence:** Screenshot 3 – Concurrent request status distribution.
 
-<img width="959" height="293" alt="Screenshot 2026-11-25 113049" src="https://github.com/user-attachments/assets/f4370621-df59-44a2-bd84-c659ded3070b" />
+<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/05fd49a6-1819-487e-bc57-779bc71fdd8d" />
+
 ---
 
 ## 4. HTTP 429 Rate-Limit Enforcement
@@ -48,4 +48,5 @@ Demonstrates the API's rate-limit enforcement behavior when the configured reque
 The response headers provide visibility into the configured request limit, remaining quota, and retry interval.
 
 **Evidence:** Screenshot 4 – HTTP 429 response and rate-limit headers.
-<img width="959" height="293" alt="Screenshot 2026-11-25 113049" src="https://github.com/user-attachments/assets/f4370621-df59-44a2-bd84-c659ded3070b" />
+<img width="959" height="360" alt="Screenshot 2026-11-25 113511" src="https://github.com/user-attachments/assets/05fd49a6-1819-487e-bc57-779bc71fdd8d" />
+
